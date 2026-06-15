@@ -116,21 +116,10 @@ POSITIVE_TRIGGERS = [
 # Alert fires if ANY of these DISAPPEAR from the page
 # ─────────────────────────────────────────────
 NEGATIVE_TRIGGERS = [
+    # Only phrases confirmed present on the page right now
     "sold out",
-    "fully booked",
-    "no longer available",
-    "unavailable",
-    "not available",
-    "no availability",
-    "no spaces available",
-    "no passes available",
     "join the waitlist",
-    "waitlist only",
-    "sold out - join waitlist",
-    "out of stock",
-    "capacity reached",
-    "event full",
-    "parking full",
+    "waitlist",
 ]
 
 
