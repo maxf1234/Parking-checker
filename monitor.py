@@ -173,8 +173,7 @@ def get_parking_status() -> dict:
                 if "7/19" in line or "july 19" in line or "match 104" in line:
                     start = max(0, i - 5)
                     end   = min(len(lines), i + 50)
-                    content = "
-".join(lines[start:end])
+                    content = "\n".join(lines[start:end])
                     print(f"  Fell back to line-window around index {i}")
                     break
             if not content:
