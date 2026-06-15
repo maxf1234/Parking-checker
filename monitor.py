@@ -25,7 +25,6 @@ EMAIL_RECIPIENT = os.environ["EMAIL_RECIPIENT"]
 POSITIVE_TRIGGERS = [
     # Buy actions
     "add to cart",
-    "buy now",
     "book now",
     "reserve now",
     "purchase now",
@@ -97,7 +96,6 @@ POSITIVE_TRIGGERS = [
     "select quantity",
     "choose quantity",
     "quantity",
-    "add",
     "continue",
     "next step",
     "payment",
