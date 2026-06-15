@@ -25,6 +25,7 @@ EMAIL_RECIPIENT = os.environ["EMAIL_RECIPIENT"]
 POSITIVE_TRIGGERS = [
     # Buy actions
     "add to cart",
+    "buy now",
     "book now",
     "reserve now",
     "purchase now",
@@ -96,6 +97,7 @@ POSITIVE_TRIGGERS = [
     "select quantity",
     "choose quantity",
     "quantity",
+    "add",
     "continue",
     "next step",
     "payment",
@@ -126,41 +128,49 @@ def get_parking_status() -> dict:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+        # Create context with cookies pre-set to bypass consent popup
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            storage_state={
+                "cookies": [
+                    # Generic consent cookies used by most CMPs
+                    {"name": "cookieConsent",      "value": "true",   "domain": ".justpark.com", "path": "/"},
+                    {"name": "cookie_consent",     "value": "true",   "domain": ".justpark.com", "path": "/"},
+                    {"name": "consent",            "value": "1",      "domain": ".justpark.com", "path": "/"},
+                    {"name": "CookieConsent",      "value": "true",   "domain": ".justpark.com", "path": "/"},
+                    {"name": "euconsent-v2",       "value": "1",      "domain": ".justpark.com", "path": "/"},
+                    {"name": "OptanonAlertBoxClosed", "value": "true","domain": ".justpark.com", "path": "/"},
+                    {"name": "OptanonConsent",     "value": "groups=1:1,2:1,3:1,4:1", "domain": ".justpark.com", "path": "/"},
+                ],
+                "origins": []
+            }
         )
+        page = context.new_page()
         page.goto(URL, wait_until="networkidle", timeout=30000)
 
-        # Dismiss cookie consent popup if present
-        for cookie_selector in [
-            "button:has-text('Accept')",
-            "button:has-text('Accept all')",
-            "button:has-text('Allow all')",
-            "button:has-text('OK')",
-            "button:has-text('Got it')",
-            "[id*='cookie'] button",
-            "[class*='cookie'] button",
-            "[class*='consent'] button",
-        ]:
+        # Extra safety: if a cookie banner is still visible, click accept
+        for btn_text in ["Accept all", "Accept", "Allow all", "OK", "Got it", "I agree"]:
             try:
-                btn = page.locator(cookie_selector).first
-                if btn.is_visible(timeout=2000):
+                btn = page.get_by_role("button", name=btn_text, exact=False).first
+                if btn.is_visible(timeout=1500):
                     btn.click()
                     page.wait_for_timeout(1000)
-                    print(f"  Dismissed cookie popup: {cookie_selector}")
+                    print(f"  Clicked cookie button: {btn_text}")
                     break
             except Exception:
                 continue
 
-        # Click the July 19th event to open its panel
+        # Click the July 19th event to open its detail panel
         try:
             page.get_by_text("7/19", exact=False).first.click(timeout=5000)
             page.wait_for_timeout(2000)
         except Exception:
             pass
 
-        # Grab full page and extract a window around the July 19 section
+        # Grab full rendered page text
         full = page.inner_text("body").lower()
+        print(f"  Full page length: {len(full)} chars")
         browser.close()
 
     lines = full.splitlines()
