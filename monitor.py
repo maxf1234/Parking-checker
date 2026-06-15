@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 JustPark FIFA World Cup Parking Monitor — Playwright version
-Renders the full JS page for July 19th and checks if "Sold Out" changes
-to anything else (e.g. "Add to Cart", "Buy Now", a price, etc.)
+Watches for any sign that July 19th parking has become available.
 """
 
 import json
@@ -12,25 +11,130 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# ─────────────────────────────────────────────
-#  CONFIGURATION
-# ─────────────────────────────────────────────
-
-# This URL opens the page with July 19th already selected
-URL = "https://www.justpark.com/us/event-parking/fifa-world-cup-2026/new-york-new-jersey-stadium/"
-
-TARGET_DATE  = "july 19"          # text to confirm we're on the right event
-STATE_FILE   = "state.json"
+URL        = "https://www.justpark.com/us/event-parking/fifa-world-cup-2026/new-york-new-jersey-stadium/"
+STATE_FILE = "state.json"
 
 EMAIL_SENDER    = os.environ["EMAIL_SENDER"]
 EMAIL_PASSWORD  = os.environ["EMAIL_PASSWORD"]
 EMAIL_RECIPIENT = os.environ["EMAIL_RECIPIENT"]
 
 # ─────────────────────────────────────────────
+# AVAILABILITY TRIGGERS
+# Alert fires if ANY of these appear on the page (positive signals)
+# ─────────────────────────────────────────────
+POSITIVE_TRIGGERS = [
+    # Buy actions
+    "add to cart",
+    "buy now",
+    "book now",
+    "reserve now",
+    "purchase now",
+    "checkout",
+    "proceed to checkout",
+    "complete purchase",
+    "confirm booking",
+    "get tickets",
+    "secure your spot",
+    "claim your spot",
+    "grab your pass",
+    "order now",
+    "pay now",
+
+    # Availability language
+    "spaces available",
+    "spots available",
+    "passes available",
+    "now available",
+    "back in stock",
+    "newly available",
+    "just released",
+    "just added",
+    "new inventory",
+    "inventory added",
+    "released",
+    "restocked",
+    "limited availability",
+    "limited spots",
+    "limited passes",
+    "spots remaining",
+    "passes remaining",
+    "spaces remaining",
+    "only a few left",
+    "almost gone",
+    "hurry",
+    "going fast",
+    "selling fast",
+    "in stock",
+    "1 left",
+    "2 left",
+    "3 left",
+
+    # Pricing appearing (signals item is purchasable)
+    "$25",
+    "$30",
+    "$35",
+    "$40",
+    "$45",
+    "$50",
+    "$55",
+    "$60",
+    "$65",
+    "$70",
+    "$75",
+    "$80",
+    "$85",
+    "$90",
+    "$95",
+    "$100",
+    "$110",
+    "$120",
+    "$125",
+    "$150",
+    "$175",
+    "$200",
+
+    # UI elements that appear when buying is possible
+    "select quantity",
+    "choose quantity",
+    "quantity",
+    "add",
+    "continue",
+    "next step",
+    "payment",
+    "enter payment",
+    "card number",
+    "select parking",
+    "choose parking",
+    "pick your spot",
+    "view passes",
+    "view options",
+    "see options",
+]
+
+# ─────────────────────────────────────────────
+# NEGATIVE TRIGGERS
+# Alert fires if ANY of these DISAPPEAR from the page
+# ─────────────────────────────────────────────
+NEGATIVE_TRIGGERS = [
+    "sold out",
+    "fully booked",
+    "no longer available",
+    "unavailable",
+    "not available",
+    "no availability",
+    "no spaces available",
+    "no passes available",
+    "join the waitlist",
+    "waitlist only",
+    "sold out - join waitlist",
+    "out of stock",
+    "capacity reached",
+    "event full",
+    "parking full",
+]
 
 
 def get_parking_status() -> dict:
-    """Use Playwright to render the page and extract July 19 availability."""
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
@@ -40,38 +144,24 @@ def get_parking_status() -> dict:
         )
         page.goto(URL, wait_until="networkidle", timeout=30000)
 
-        # Click on the July 19 event if a calendar/event list is present
         try:
             page.get_by_text("7/19", exact=False).first.click(timeout=5000)
             page.wait_for_timeout(2000)
         except Exception:
-            pass  # might already be selected or text differs
+            pass
 
-        # Grab the full rendered text
         content = page.inner_text("body").lower()
         browser.close()
 
-    # Find all lines that contain "sold out", "available", "add to cart",
-    # prices ($), or July 19 references
-    lines = [l.strip() for l in content.splitlines() if l.strip()]
-    relevant = [
-        l for l in lines if any(kw in l for kw in [
-            "sold out", "available", "add to cart", "buy now",
-            "general pricing", "ada", "parking", "july 19", "7/19",
-            "$", "select", "waitlist"
-        ])
-    ]
+    positive_found = {t: t in content for t in POSITIVE_TRIGGERS}
+    negative_found = {t: t in content for t in NEGATIVE_TRIGGERS}
 
-    # Build a status snapshot
-    status = {
-        "july_19_found":   "july 19" in content or "7/19" in content,
-        "sold_out":        "sold out" in content,
-        "available":       "available" in content and "sold out" not in content,
-        "add_to_cart":     "add to cart" in content,
-        "relevant_lines":  relevant[:30],   # cap at 30 lines
-        "checked_at":      datetime.now().isoformat(),
+    return {
+        "july_19_found":    "july 19" in content or "7/19" in content,
+        "positive_found":   positive_found,
+        "negative_found":   negative_found,
+        "checked_at":       datetime.now().isoformat(),
     }
-    return status
 
 
 def load_state() -> dict:
@@ -93,39 +183,30 @@ def send_email(old: dict, new: dict) -> None:
     subject = "🚨 FIFA World Cup Final Parking — July 19 Status Changed!"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Highlight key changes
-    changes = []
-    for key in ["sold_out", "available", "add_to_cart"]:
-        if old.get(key) != new.get(key):
-            changes.append(f"  {key}: {old.get(key)} → {new.get(key)}")
-
-    old_lines = set(old.get("relevant_lines", []))
-    new_lines  = set(new.get("relevant_lines", []))
-    added   = new_lines - old_lines
-    removed = old_lines - new_lines
+    # Positive triggers that newly appeared
+    newly_appeared = [
+        t for t in POSITIVE_TRIGGERS
+        if new["positive_found"].get(t) and not old.get("positive_found", {}).get(t)
+    ]
+    # Negative triggers that disappeared
+    newly_gone = [
+        t for t in NEGATIVE_TRIGGERS
+        if not new["negative_found"].get(t) and old.get("negative_found", {}).get(t)
+    ]
 
     body = f"""
-A change was detected on the JustPark FIFA World Cup parking page for July 19th!
+🚨 A change was detected on the JustPark FIFA World Cup Final parking page!
 
 Detected at: {timestamp}
 Page: {URL}
 
-KEY STATUS CHANGES:
-{chr(10).join(changes) if changes else '  (see page text changes below)'}
+GOOD SIGNS — NOW APPEARING ON PAGE:
+{chr(10).join(f'  ✅ "{t}"' for t in newly_appeared) or '  (none)'}
 
-NEW TEXT ON PAGE:
-{chr(10).join(f'  + {l}' for l in sorted(added)) or '  (none)'}
+SOLD OUT LANGUAGE — NOW GONE FROM PAGE:
+{chr(10).join(f'  ✅ "{t}" disappeared' for t in newly_gone) or '  (none)'}
 
-REMOVED TEXT FROM PAGE:
-{chr(10).join(f'  - {l}' for l in sorted(removed)) or '  (none)'}
-
-CURRENT PAGE STATUS:
-  July 19 found: {new.get('july_19_found')}
-  Sold Out:      {new.get('sold_out')}
-  Available:     {new.get('available')}
-  Add to Cart:   {new.get('add_to_cart')}
-
-➡ CHECK NOW: {URL}
+➡ GO BUY NOW: {URL}
 """
 
     msg = MIMEMultipart()
@@ -150,16 +231,13 @@ def main() -> None:
         print(f"  ✗  Failed to fetch page: {e}")
         return
 
-    print(f"  July 19 found: {current['july_19_found']}")
-    print(f"  Sold Out:      {current['sold_out']}")
-    print(f"  Available:     {current['available']}")
-    print(f"  Add to Cart:   {current['add_to_cart']}")
-    print(f"  Relevant lines: {current['relevant_lines'][:5]}")
+    print(f"  July 19 found:    {current['july_19_found']}")
+    print(f"  Positive matches: {[t for t, v in current['positive_found'].items() if v]}")
+    print(f"  Negative matches: {[t for t, v in current['negative_found'].items() if v]}")
 
-    state = load_state()
+    state  = load_state()
     previous = state.get("status")
 
-    # Compare only the stable keys (not checked_at)
     def comparable(s):
         return {k: v for k, v in s.items() if k != "checked_at"} if s else {}
 
