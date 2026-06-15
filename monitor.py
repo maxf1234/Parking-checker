@@ -25,6 +25,7 @@ EMAIL_RECIPIENT = os.environ["EMAIL_RECIPIENT"]
 POSITIVE_TRIGGERS = [
     # Buy actions
     "add to cart",
+    "buy now",
     "book now",
     "reserve now",
     "purchase now",
@@ -96,6 +97,7 @@ POSITIVE_TRIGGERS = [
     "select quantity",
     "choose quantity",
     "quantity",
+    "add",
     "continue",
     "next step",
     "payment",
@@ -159,16 +161,24 @@ def get_parking_status() -> dict:
             except Exception:
                 continue
 
+        # Wait extra time for JS to fully render the parking calendar
+        page.wait_for_timeout(4000)
+
+        # Scroll down to trigger any lazy-loaded content
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+        page.wait_for_timeout(2000)
+
         # Click the July 19th event to open its detail panel
         try:
-            page.get_by_text("7/19", exact=False).first.click(timeout=5000)
-            page.wait_for_timeout(2000)
-        except Exception:
-            pass
+            page.get_by_text("7/19", exact=False).first.click(timeout=8000)
+            page.wait_for_timeout(3000)
+        except Exception as e:
+            print(f"  Could not click 7/19: {e}")
 
         # Grab full rendered page text
         full = page.inner_text("body").lower()
         print(f"  Full page length: {len(full)} chars")
+        print(f"  Page preview: {full[:500]!r}")
         browser.close()
 
     lines = full.splitlines()
@@ -270,6 +280,12 @@ def main() -> None:
     print(f"  July 19 found:    {current['july_19_found']}")
     print(f"  Positive matches: {[t for t, v in current['positive_found'].items() if v]}")
     print(f"  Negative matches: {[t for t, v in current['negative_found'].items() if v]}")
+
+    # Safety guard: if July 19 wasn't found, the page didn't load properly
+    # Don't update state or send alerts — just skip this run
+    if not current["july_19_found"]:
+        print("  ⚠  July 19 not found on page — page may not have loaded correctly. Skipping.")
+        return
 
     state  = load_state()
     previous = state.get("status")
