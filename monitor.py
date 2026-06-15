@@ -133,20 +133,63 @@ def get_parking_status() -> dict:
         )
         page.goto(URL, wait_until="networkidle", timeout=30000)
 
+        # Click the July 19th event to open its panel
         try:
             page.get_by_text("7/19", exact=False).first.click(timeout=5000)
             page.wait_for_timeout(2000)
         except Exception:
             pass
 
-        content = page.inner_text("body").lower()
+        # Try to isolate just the July 19 listing panel
+        # The panel that opens after clicking contains the pricing/availability info
+        content = None
+        for selector in [
+            "[class*='event-detail']",
+            "[class*='listing']",
+            "[class*='modal']",
+            "[class*='popup']",
+            "[class*='panel']",
+            "[class*='booking']",
+            "[class*='ticket']",
+        ]:
+            try:
+                el = page.locator(selector).first
+                el.wait_for(timeout=2000)
+                text = el.inner_text().lower()
+                # Only use this element if it contains july 19 context
+                if "7/19" in text or "july 19" in text or "match 104" in text or "sold out" in text or "add to cart" in text:
+                    content = text
+                    print(f"  Using selector: {selector}")
+                    break
+            except Exception:
+                continue
+
+        # Fallback: grab full page but filter to only lines containing july 19 context
+        if not content:
+            full = page.inner_text("body").lower()
+            lines = full.splitlines()
+            # Find the line with 7/19 and grab 50 lines around it
+            for i, line in enumerate(lines):
+                if "7/19" in line or "july 19" in line or "match 104" in line:
+                    start = max(0, i - 5)
+                    end   = min(len(lines), i + 50)
+                    content = "
+".join(lines[start:end])
+                    print(f"  Fell back to line-window around index {i}")
+                    break
+            if not content:
+                content = full  # last resort: full page
+                print("  Warning: could not isolate July 19 section, using full page")
+
         browser.close()
+
+    print(f"  Scoped content ({len(content)} chars): {content[:300]!r}")
 
     positive_found = {t: t in content for t in POSITIVE_TRIGGERS}
     negative_found = {t: t in content for t in NEGATIVE_TRIGGERS}
 
     return {
-        "july_19_found":    "july 19" in content or "7/19" in content,
+        "july_19_found":    "july 19" in content or "7/19" in content or "match 104" in content,
         "positive_found":   positive_found,
         "negative_found":   negative_found,
         "checked_at":       datetime.now().isoformat(),
