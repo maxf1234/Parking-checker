@@ -131,6 +131,27 @@ def get_parking_status() -> dict:
         )
         page.goto(URL, wait_until="networkidle", timeout=30000)
 
+        # Dismiss cookie consent popup if present
+        for cookie_selector in [
+            "button:has-text('Accept')",
+            "button:has-text('Accept all')",
+            "button:has-text('Allow all')",
+            "button:has-text('OK')",
+            "button:has-text('Got it')",
+            "[id*='cookie'] button",
+            "[class*='cookie'] button",
+            "[class*='consent'] button",
+        ]:
+            try:
+                btn = page.locator(cookie_selector).first
+                if btn.is_visible(timeout=2000):
+                    btn.click()
+                    page.wait_for_timeout(1000)
+                    print(f"  Dismissed cookie popup: {cookie_selector}")
+                    break
+            except Exception:
+                continue
+
         # Click the July 19th event to open its panel
         try:
             page.get_by_text("7/19", exact=False).first.click(timeout=5000)
@@ -138,47 +159,25 @@ def get_parking_status() -> dict:
         except Exception:
             pass
 
-        # Try to isolate just the July 19 listing panel
-        # The panel that opens after clicking contains the pricing/availability info
-        content = None
-        for selector in [
-            "[class*='event-detail']",
-            "[class*='listing']",
-            "[class*='modal']",
-            "[class*='popup']",
-            "[class*='panel']",
-            "[class*='booking']",
-            "[class*='ticket']",
-        ]:
-            try:
-                el = page.locator(selector).first
-                el.wait_for(timeout=2000)
-                text = el.inner_text().lower()
-                # Only use this element if it contains july 19 context
-                if "7/19" in text or "july 19" in text or "match 104" in text or "sold out" in text or "add to cart" in text:
-                    content = text
-                    print(f"  Using selector: {selector}")
-                    break
-            except Exception:
-                continue
-
-        # Fallback: grab full page but filter to only lines containing july 19 context
-        if not content:
-            full = page.inner_text("body").lower()
-            lines = full.splitlines()
-            # Find the line with 7/19 and grab 50 lines around it
-            for i, line in enumerate(lines):
-                if "7/19" in line or "july 19" in line or "match 104" in line:
-                    start = max(0, i - 5)
-                    end   = min(len(lines), i + 50)
-                    content = "\n".join(lines[start:end])
-                    print(f"  Fell back to line-window around index {i}")
-                    break
-            if not content:
-                content = full  # last resort: full page
-                print("  Warning: could not isolate July 19 section, using full page")
-
+        # Grab full page and extract a window around the July 19 section
+        full = page.inner_text("body").lower()
         browser.close()
+
+    lines = full.splitlines()
+    content = None
+
+    # Find the July 19 anchor line and grab 60 lines after it
+    for i, line in enumerate(lines):
+        if "7/19" in line or "july 19" in line or "match 104" in line:
+            start = max(0, i - 3)
+            end   = min(len(lines), i + 60)
+            content = "\n".join(lines[start:end])
+            print(f"  Isolated July 19 section at line {i} ({len(content)} chars)")
+            break
+
+    if not content:
+        content = full
+        print("  Warning: could not find July 19 on page, using full page text")
 
     print(f"  Scoped content ({len(content)} chars): {content[:300]!r}")
 
