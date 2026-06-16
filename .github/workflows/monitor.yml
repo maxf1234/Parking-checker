@@ -25,12 +25,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Playwright
-        run: |
-          pip install playwright
-          playwright install chromium
-          playwright install-deps chromium
-
       - name: Run monitor
         env:
           EMAIL_SENDER:    ${{ secrets.EMAIL_SENDER }}
