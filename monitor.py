@@ -28,6 +28,8 @@ STATE_FILE   = "state.json"
 EMAIL_SENDER    = os.environ["EMAIL_SENDER"]
 EMAIL_PASSWORD  = os.environ["EMAIL_PASSWORD"]
 EMAIL_RECIPIENT = os.environ["EMAIL_RECIPIENT"]
+# Supports multiple recipients separated by commas
+RECIPIENT_LIST  = [e.strip() for e in EMAIL_RECIPIENT.split(",") if e.strip()]
 
 # ─────────────────────────────────────────────
 
@@ -161,15 +163,15 @@ CURRENT STATUS:
 
     msg = MIMEMultipart()
     msg["From"]    = EMAIL_SENDER
-    msg["To"]      = EMAIL_RECIPIENT
+    msg["To"]      = ", ".join(RECIPIENT_LIST)
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, msg.as_string())
+        server.sendmail(EMAIL_SENDER, RECIPIENT_LIST, msg.as_string())
 
-    print(f"  ✉  Alert sent to {EMAIL_RECIPIENT}")
+    print(f"  ✉  Alert sent to {RECIPIENT_LIST}")
 
 
 def main() -> None:
