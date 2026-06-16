@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-JustPark FIFA World Cup Parking Monitor — Playwright version
-Watches for any sign that July 19th parking has become available.
+JustPark FIFA World Cup Final Parking Monitor
+Hits the JustPark platform API directly to check July 19th availability.
+No browser needed — fast and reliable.
 """
 
 import json
@@ -10,204 +11,79 @@ import smtplib
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 
-URL        = "https://www.justpark.com/us/event-parking/fifa-world-cup-2026/new-york-new-jersey-stadium/"
-STATE_FILE = "state.json"
+# ─────────────────────────────────────────────
+#  CONFIGURATION
+# ─────────────────────────────────────────────
+
+API_URL      = "https://platform.justpark.com/api/v1/smartpass/listings"
+EVENT_ID     = "f293569b-b919-469b-b3ca-3ee4f950d16a"   # Match 104 — July 19th Final
+CLIENT_ORG   = "f568ae9d-f263-4ef9-bf7e-56ef5fee8bbe"
+AUTH_TOKEN   = "Basic N1kyWjRYOFc2VjNVMVQ5UzdSNVEzUDFOOEwwSzJKOUg2OjRSOEcySDZGM0o5SzBMMU43UDVRMlI4UzNVOVYwVzFY"
+PAGE_URL     = "https://www.justpark.com/us/event-parking/fifa-world-cup-2026/new-york-new-jersey-stadium/"
+STATE_FILE   = "state.json"
 
 EMAIL_SENDER    = os.environ["EMAIL_SENDER"]
 EMAIL_PASSWORD  = os.environ["EMAIL_PASSWORD"]
 EMAIL_RECIPIENT = os.environ["EMAIL_RECIPIENT"]
 
 # ─────────────────────────────────────────────
-# AVAILABILITY TRIGGERS
-# Alert fires if ANY of these appear on the page (positive signals)
-# ─────────────────────────────────────────────
-POSITIVE_TRIGGERS = [
-    # Buy actions
-    "add to cart",
-    "buy now",
-    "book now",
-    "reserve now",
-    "purchase now",
-    "checkout",
-    "proceed to checkout",
-    "complete purchase",
-    "confirm booking",
-    "get tickets",
-    "secure your spot",
-    "claim your spot",
-    "grab your pass",
-    "order now",
-    "pay now",
-
-    # Availability language
-    "spaces available",
-    "spots available",
-    "passes available",
-    "now available",
-    "back in stock",
-    "newly available",
-    "just released",
-    "just added",
-    "new inventory",
-    "inventory added",
-    "released",
-    "restocked",
-    "limited availability",
-    "limited spots",
-    "limited passes",
-    "spots remaining",
-    "passes remaining",
-    "spaces remaining",
-    "only a few left",
-    "almost gone",
-    "hurry",
-    "going fast",
-    "selling fast",
-    "in stock",
-    "1 left",
-    "2 left",
-    "3 left",
-
-    # Pricing appearing (signals item is purchasable)
-    "$25",
-    "$30",
-    "$35",
-    "$40",
-    "$45",
-    "$50",
-    "$55",
-    "$60",
-    "$65",
-    "$70",
-    "$75",
-    "$80",
-    "$85",
-    "$90",
-    "$95",
-    "$100",
-    "$110",
-    "$120",
-    "$125",
-    "$150",
-    "$175",
-    "$200",
-
-    # UI elements that appear when buying is possible
-    "select quantity",
-    "choose quantity",
-    "quantity",
-    "add",
-    "continue",
-    "next step",
-    "payment",
-    "enter payment",
-    "card number",
-    "select parking",
-    "choose parking",
-    "pick your spot",
-    "view passes",
-    "view options",
-    "see options",
-]
-
-# ─────────────────────────────────────────────
-# NEGATIVE TRIGGERS
-# Alert fires if ANY of these DISAPPEAR from the page
-# ─────────────────────────────────────────────
-NEGATIVE_TRIGGERS = [
-    # Only phrases confirmed present on the page right now
-    "sold out",
-    "join the waitlist",
-    "waitlist",
-]
 
 
-def get_parking_status() -> dict:
-    from playwright.sync_api import sync_playwright
+def fetch_listings() -> dict:
+    """Call the JustPark API and return the raw JSON response."""
+    payload = json.dumps({
+        "clientOrgKey": CLIENT_ORG,
+        "events": [EVENT_ID],
+        "thirdPartyLandmarks": []
+    }).encode("utf-8")
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+    req = Request(
+        API_URL,
+        data=payload,
+        headers={
+            "Authorization":  AUTH_TOKEN,
+            "Content-Type":   "application/json",
+            "Accept":         "*/*",
+            "Origin":         "https://eventpass.justpark.com",
+            "Referer":        "https://eventpass.justpark.com/",
+            "User-Agent":     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        },
+        method="POST"
+    )
 
-        # Create context with cookies pre-set to bypass consent popup
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            storage_state={
-                "cookies": [
-                    # Generic consent cookies used by most CMPs
-                    {"name": "cookieConsent",      "value": "true",   "domain": ".justpark.com", "path": "/"},
-                    {"name": "cookie_consent",     "value": "true",   "domain": ".justpark.com", "path": "/"},
-                    {"name": "consent",            "value": "1",      "domain": ".justpark.com", "path": "/"},
-                    {"name": "CookieConsent",      "value": "true",   "domain": ".justpark.com", "path": "/"},
-                    {"name": "euconsent-v2",       "value": "1",      "domain": ".justpark.com", "path": "/"},
-                    {"name": "OptanonAlertBoxClosed", "value": "true","domain": ".justpark.com", "path": "/"},
-                    {"name": "OptanonConsent",     "value": "groups=1:1,2:1,3:1,4:1", "domain": ".justpark.com", "path": "/"},
-                ],
-                "origins": []
-            }
-        )
-        page = context.new_page()
-        page.goto(URL, wait_until="networkidle", timeout=30000)
+    with urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
 
-        # Extra safety: if a cookie banner is still visible, click accept
-        for btn_text in ["Accept all", "Accept", "Allow all", "OK", "Got it", "I agree"]:
-            try:
-                btn = page.get_by_role("button", name=btn_text, exact=False).first
-                if btn.is_visible(timeout=1500):
-                    btn.click()
-                    page.wait_for_timeout(1000)
-                    print(f"  Clicked cookie button: {btn_text}")
-                    break
-            except Exception:
-                continue
 
-        # Wait extra time for JS to fully render the parking calendar
-        page.wait_for_timeout(4000)
+def extract_status(data: dict) -> dict:
+    """Pull out the key availability fields from the API response."""
+    listings = data if isinstance(data, list) else data.get("listings", data.get("data", []))
 
-        # Scroll down to trigger any lazy-loaded content
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-        page.wait_for_timeout(2000)
-
-        # Click the July 19th event to open its detail panel
-        try:
-            page.get_by_text("7/19", exact=False).first.click(timeout=8000)
-            page.wait_for_timeout(3000)
-        except Exception as e:
-            print(f"  Could not click 7/19: {e}")
-
-        # Grab full rendered page text
-        full = page.inner_text("body").lower()
-        print(f"  Full page length: {len(full)} chars")
-        print(f"  Page preview: {full[:500]!r}")
-        browser.close()
-
-    lines = full.splitlines()
-    content = None
-
-    # Find the July 19 anchor line and grab 60 lines after it
-    for i, line in enumerate(lines):
-        if "7/19" in line or "july 19" in line or "match 104" in line:
-            start = max(0, i - 3)
-            end   = min(len(lines), i + 60)
-            content = "\n".join(lines[start:end])
-            print(f"  Isolated July 19 section at line {i} ({len(content)} chars)")
-            break
-
-    if not content:
-        content = full
-        print("  Warning: could not find July 19 on page, using full page text")
-
-    print(f"  Scoped content ({len(content)} chars): {content[:300]!r}")
-
-    positive_found = {t: t in content for t in POSITIVE_TRIGGERS}
-    negative_found = {t: t in content for t in NEGATIVE_TRIGGERS}
-
-    return {
-        "july_19_found":    "july 19" in content or "7/19" in content or "match 104" in content,
-        "positive_found":   positive_found,
-        "negative_found":   negative_found,
-        "checked_at":       datetime.now().isoformat(),
+    status = {
+        "checked_at": datetime.now().isoformat(),
+        "listings":   []
     }
+
+    if isinstance(listings, list):
+        for item in listings:
+            listing = {
+                "name":      item.get("name", item.get("title", "Unknown")),
+                "available": item.get("available", item.get("isAvailable", None)),
+                "sold_out":  item.get("soldOut", item.get("isSoldOut", None)),
+                "price":     item.get("price", item.get("priceInCents", None)),
+                "remaining": item.get("remaining", item.get("spotsRemaining", None)),
+                "status":    item.get("status", item.get("availabilityStatus", None)),
+            }
+            status["listings"].append(listing)
+    else:
+        # If response structure is unexpected, store the raw top-level keys
+        status["raw"] = {k: v for k, v in (data.items() if isinstance(data, dict) else {}.items())
+                         if k not in ("cookies", "headers")}
+
+    return status
 
 
 def load_state() -> dict:
@@ -225,34 +101,45 @@ def save_state(state: dict) -> None:
         json.dump(state, f, indent=2)
 
 
+def comparable(s: dict) -> dict:
+    """Strip timestamp for comparison."""
+    return {k: v for k, v in s.items() if k != "checked_at"} if s else {}
+
+
 def send_email(old: dict, new: dict) -> None:
     subject = "🚨 FIFA World Cup Final Parking — July 19 Status Changed!"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Positive triggers that newly appeared
-    newly_appeared = [
-        t for t in POSITIVE_TRIGGERS
-        if new["positive_found"].get(t) and not old.get("positive_found", {}).get(t)
-    ]
-    # Negative triggers that disappeared
-    newly_gone = [
-        t for t in NEGATIVE_TRIGGERS
-        if not new["negative_found"].get(t) and old.get("negative_found", {}).get(t)
-    ]
+    old_listings = {l["name"]: l for l in old.get("listings", [])}
+    new_listings = {l["name"]: l for l in new.get("listings", [])}
+
+    changes = []
+    for name, new_l in new_listings.items():
+        old_l = old_listings.get(name, {})
+        diffs = []
+        for field in ["available", "sold_out", "price", "remaining", "status"]:
+            if old_l.get(field) != new_l.get(field):
+                diffs.append(f"    {field}: {old_l.get(field)} → {new_l.get(field)}")
+        if diffs:
+            changes.append(f"  {name}:\n" + "\n".join(diffs))
+
+    # New listings that didn't exist before
+    for name in new_listings:
+        if name not in old_listings:
+            changes.append(f"  NEW LISTING APPEARED: {name}\n    {new_listings[name]}")
 
     body = f"""
-🚨 A change was detected on the JustPark FIFA World Cup Final parking page!
+🚨 A change was detected on the JustPark July 19th FIFA World Cup Final parking!
 
 Detected at: {timestamp}
-Page: {URL}
 
-GOOD SIGNS — NOW APPEARING ON PAGE:
-{chr(10).join(f'  ✅ "{t}"' for t in newly_appeared) or '  (none)'}
+WHAT CHANGED:
+{chr(10).join(changes) if changes else '  General change detected — check the page.'}
 
-SOLD OUT LANGUAGE — NOW GONE FROM PAGE:
-{chr(10).join(f'  ✅ "{t}" disappeared' for t in newly_gone) or '  (none)'}
+CURRENT LISTINGS:
+{chr(10).join(f"  {l['name']}: available={l['available']} sold_out={l['sold_out']} price={l['price']} remaining={l['remaining']} status={l['status']}" for l in new.get('listings', []))}
 
-➡ GO BUY NOW: {URL}
+➡ BUY NOW: {PAGE_URL}
 """
 
     msg = MIMEMultipart()
@@ -269,29 +156,26 @@ SOLD OUT LANGUAGE — NOW GONE FROM PAGE:
 
 
 def main() -> None:
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking July 19 parking status...")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Querying JustPark API for July 19 listings...")
 
     try:
-        current = get_parking_status()
+        data = fetch_listings()
+    except URLError as e:
+        print(f"  ✗  API request failed: {e}")
+        return
     except Exception as e:
-        print(f"  ✗  Failed to fetch page: {e}")
+        print(f"  ✗  Unexpected error: {e}")
         return
 
-    print(f"  July 19 found:    {current['july_19_found']}")
-    print(f"  Positive matches: {[t for t, v in current['positive_found'].items() if v]}")
-    print(f"  Negative matches: {[t for t, v in current['negative_found'].items() if v]}")
+    print(f"  Raw API response: {json.dumps(data)[:500]}")
 
-    # Safety guard: if July 19 wasn't found, the page didn't load properly
-    # Don't update state or send alerts — just skip this run
-    if not current["july_19_found"]:
-        print("  ⚠  July 19 not found on page — page may not have loaded correctly. Skipping.")
-        return
+    current = extract_status(data)
+    print(f"  Listings found: {len(current.get('listings', []))}")
+    for l in current.get("listings", []):
+        print(f"    {l['name']}: available={l['available']} sold_out={l['sold_out']} price={l['price']} remaining={l['remaining']} status={l['status']}")
 
-    state  = load_state()
+    state    = load_state()
     previous = state.get("status")
-
-    def comparable(s):
-        return {k: v for k, v in s.items() if k != "checked_at"} if s else {}
 
     if previous is None:
         print("  ✓  First run — baseline saved.")
