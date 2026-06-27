@@ -1,10 +1,10 @@
 {
   "status": {
-    "checked_at": "2026-06-27T20:00:23.062279",
+    "checked_at": "2026-06-27T20:30:21.413449",
     "listings": [
       {
         "name": "1 - New York New Jersey Stadium - AMERICAN DREAM",
-        "available_inventory": 365,
+        "available_inventory": 363,
         "is_available": true,
         "presell": true,
         "prices": [
