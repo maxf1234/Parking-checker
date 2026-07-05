@@ -1,6 +1,6 @@
 {
   "status": {
-    "checked_at": "2026-07-05T05:00:32.714967",
+    "checked_at": "2026-07-05T05:30:28.155588",
     "listings": [
       {
         "name": "1 - New York New Jersey Stadium - AMERICAN DREAM",
@@ -17,7 +17,7 @@
       },
       {
         "name": "New York New Jersey Stadium - H Plaza Lot J ADA/Accessibility Parking - FIFA",
-        "available_inventory": 32,
+        "available_inventory": 31,
         "is_available": true,
         "presell": true,
         "prices": [
