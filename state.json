@@ -1,10 +1,10 @@
 {
   "status": {
-    "checked_at": "2026-07-07T15:30:38.268894",
+    "checked_at": "2026-07-07T16:00:43.628438",
     "listings": [
       {
         "name": "1 - New York New Jersey Stadium - AMERICAN DREAM",
-        "available_inventory": 2092,
+        "available_inventory": 2093,
         "is_available": true,
         "presell": true,
         "prices": [
@@ -17,14 +17,14 @@
       },
       {
         "name": "New York New Jersey Stadium - H Plaza Lot J ADA/Accessibility Parking - FIFA",
-        "available_inventory": 3,
+        "available_inventory": 4,
         "is_available": true,
         "presell": true,
         "prices": [
           {
             "name": "ADA Parking",
-            "amount": 21122,
-            "total": 24999
+            "amount": 25347,
+            "total": 30000
           }
         ]
       }
